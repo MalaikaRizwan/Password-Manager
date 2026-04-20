@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply min-h-screen;
+  }
+
+  body {
+    @apply text-slate-100 antialiased;
+    margin: 0;
+    background: radial-gradient(circle at 20% 20%, #1a1f3b 0%, #090e1d 35%, #05070f 75%, #030408 100%);
+    background-size: 180% 180%;
+    animation: gradientShift 16s ease infinite;
+  }
+}
+
+@layer components {
+  .aurora-grid {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 18% 22%, rgba(34, 211, 238, 0.2), transparent 45%),
+      radial-gradient(circle at 78% 18%, rgba(139, 92, 246, 0.28), transparent 40%),
+      radial-gradient(circle at 62% 78%, rgba(59, 130, 246, 0.2), transparent 42%);
+    filter: blur(0.5px);
+    animation: gradientShift 20s ease infinite;
+  }
+
+  .bg-orbs::before,
+  .bg-orbs::after {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    border-radius: 9999px;
+    filter: blur(50px);
+    opacity: 0.22;
+  }
+
+  .bg-orbs::before {
+    width: 18rem;
+    height: 18rem;
+    left: 8%;
+    top: 12%;
+    background: #7c3aed;
+    animation: floaty 8s ease-in-out infinite;
+  }
+
+  .bg-orbs::after {
+    width: 20rem;
+    height: 20rem;
+    right: 6%;
+    bottom: 10%;
+    background: #06b6d4;
+    animation: floaty 9s ease-in-out infinite reverse;
+  }
+
+  .glass-outline {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 20px 60px rgba(2, 6, 23, 0.45),
+      0 0 55px rgba(56, 189, 248, 0.14);
+  }
+}
