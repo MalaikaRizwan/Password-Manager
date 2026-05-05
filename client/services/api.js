@@ -43,6 +43,7 @@ export const api = {
   setupMfa: () => request("/auth/mfa/setup", { method: "POST" }),
   requestRecovery: (body) => request("/auth/recovery/request", { method: "POST", body: JSON.stringify(body) }),
   submitRecoveryShare: (body) => request("/auth/recovery/submit-share", { method: "POST", body: JSON.stringify(body) }),
+  completeRecovery: (body) => request("/auth/recovery/complete", { method: "POST", body: JSON.stringify(body) }),
   listVault: () => request("/vault"),
   createVaultItem: (body) => request("/vault", { method: "POST", body: JSON.stringify(body) }),
   updateVaultItem: (id, body) => request(`/vault/${id}`, { method: "PUT", body: JSON.stringify(body) }),

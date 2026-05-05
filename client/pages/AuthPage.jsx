@@ -9,7 +9,8 @@ import {
   randomBytesBase64,
   recoverSecret,
   splitRecoverySecret,
-  encryptRecoveryShares
+  encryptRecoveryShares,
+  generateStrongPassword
 } from "../utils/crypto";
 import Button from "../components/UI/Button";
 import GlassCard from "../components/UI/GlassCard";
@@ -21,11 +22,16 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
   const [masterPassword, setMasterPassword] = useState("");
   const [message, setMessage] = useState("");
   const [shares, setShares] = useState([]);
+  const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [recoveryInput, setRecoveryInput] = useState("");
+  const [inputRecoveryPhrase, setInputRecoveryPhrase] = useState("");
   const [authSaltForRecovery, setAuthSaltForRecovery] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isValidatingRecovery, setIsValidatingRecovery] = useState(false);
+  const [recoveryToken, setRecoveryToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
   const lastActionRef = useRef(0);
 
   function estimatePasswordEntropy(password) {
@@ -53,9 +59,10 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
       const normalizedEmail = email.trim().toLowerCase();
       const authSalt = randomBytesBase64(16);
       const authVerifier = await deriveAuthVerifier(normalizedEmail, masterPassword, authSalt);
+      const generatedRecoveryPhrase = generateStrongPassword({ length: 24, symbols: false });
       const recoverySecret = crypto.randomUUID();
       const plainShares = splitRecoverySecret(recoverySecret, 3, 5);
-      const recoveryKey = await deriveRecoveryKey(masterPassword, authSalt);
+      const recoveryKey = await deriveRecoveryKey(generatedRecoveryPhrase, authSalt);
       const encryptedShares = await encryptRecoveryShares(recoveryKey, plainShares);
 
       await api.register({
@@ -71,7 +78,8 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
       onSaltReady(authSalt);
       setAuthSaltForRecovery(authSalt);
       setShares(encryptedShares);
-      setMessage("Registration successful. Store your encrypted recovery shares securely.");
+      setRecoveryPhrase(generatedRecoveryPhrase);
+      setMessage("Registration successful. Store your recovery phrase and shares securely.");
     } catch {
       setMessage("Registration failed. Please try again.");
     } finally {
@@ -151,86 +159,176 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
 
           {shares.length > 0 && (
             <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4">
-              <h4 className="mb-2 text-lg font-semibold text-cyan-200">Recovery Shares (store offline)</h4>
+              <h4 className="mb-2 text-lg font-semibold text-cyan-200">Recovery Kit (store offline)</h4>
+              <p className="mb-2 text-sm text-cyan-100">Recovery Phrase: <strong className="select-all tracking-wider text-white">{recoveryPhrase}</strong></p>
               <pre className="max-h-28 overflow-auto text-xs text-cyan-100/90">{shares.join("\n")}</pre>
             </div>
           )}
 
-          <div className="rounded-xl border border-white/15 bg-white/5 p-4 backdrop-blur-lg">
-            <div className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-200">
-              <KeyRound size={14} /> Recovery Check
-            </div>
-            <Input
-              as="textarea"
-              placeholder="Paste 3 lines: contactId|token|encryptedShare"
-              value={recoveryInput}
-              onChange={(e) => setRecoveryInput(e.target.value)}
-              rows={4}
-              className="resize-none"
-            />
-            <div className="mt-2 flex items-center gap-2">
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  if (isValidatingRecovery) return;
-                  setIsValidatingRecovery(true);
-                  try {
-                    const rawShares = recoveryInput
-                      .split("\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-
-                    if (rawShares.length < 3) {
-                      setMessage("At least 3 shares are required.");
+          {recoveryToken ? (
+            <div className="rounded-xl border border-white/15 bg-white/5 p-4 backdrop-blur-lg">
+              <div className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-200">
+                <KeyRound size={14} /> Reset Master Password
+              </div>
+              <Input
+                placeholder="New Master Password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={async () => {
+                    if (isResetting) return;
+                    if (newPassword.length < 12 || estimatePasswordEntropy(newPassword) < 50) {
+                      setMessage("New password is too weak (minimum 12 chars and high entropy).");
                       return;
                     }
-
-                    const authVerifier = await deriveAuthVerifier(email, masterPassword, authSaltForRecovery);
-                    const request = await api.requestRecovery({ email, authVerifier });
-                    if (Array.isArray(request.verificationTokens) && request.verificationTokens.length > 0) {
-                      setMessage(
-                        `Recovery request received. Contact tokens: ${request.verificationTokens
-                          .map((entry) => `${entry.contactId}:${entry.token}`)
-                          .join(" | ")}`
-                      );
+                    setIsResetting(true);
+                    try {
+                      const authSalt = randomBytesBase64(16);
+                      const authVerifier = await deriveAuthVerifier(email, newPassword, authSalt);
+                      await api.completeRecovery({ recoveryToken, authVerifier, authSalt });
+                      setMessage("Password reset successful. Please log in with your new password.");
+                      setRecoveryToken("");
+                      setNewPassword("");
+                    } catch (e) {
+                      setMessage("Reset failed: " + (e.message || "Unknown error"));
+                    } finally {
+                      setIsResetting(false);
                     }
-                    const submittedEncryptedShares = [];
-                    for (let i = 0; i < rawShares.length; i += 1) {
-                      const line = rawShares[i];
-                      const parts = line.split("|");
-                      if (parts.length < 3) {
-                        setMessage("Invalid format. Use contactId|token|encryptedShare.");
+                  }}
+                  disabled={isResetting}
+                >
+                  Confirm Reset
+                </Button>
+                {isResetting && <Loader label="Processing..." />}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-white/15 bg-white/5 p-4 backdrop-blur-lg">
+              <div className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-200">
+                <KeyRound size={14} /> Recovery Check
+              </div>
+              <div className="mb-4">
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      const normalizedEmail = email.trim().toLowerCase();
+                      if (!normalizedEmail) {
+                        setMessage("Please enter your email above.");
                         return;
                       }
-                      const contactId = parts[0].trim();
-                      const verificationToken = parts[1].trim();
-                      const encryptedShare = parts.slice(2).join("|").trim();
-                      submittedEncryptedShares.push(encryptedShare);
-                      await api.submitRecoveryShare({
-                        email,
-                        contactId,
-                        verificationToken,
-                        encryptedShare
-                      });
+                      const pre = await api.preLogin({ email: normalizedEmail });
+                      const salt = pre.authSalt;
+                      setAuthSaltForRecovery(salt);
+                      const request = await api.requestRecovery({ email: normalizedEmail });
+                      if (Array.isArray(request.verificationTokens) && request.verificationTokens.length > 0) {
+                        setMessage(
+                          `Recovery request received. Contact tokens:\n${request.verificationTokens
+                            .map((entry) => `${entry.contactId} : ${entry.token}`)
+                            .join("\n")}`
+                        );
+                      }
+                    } catch (e) {
+                      setMessage("Failed to request recovery: " + (e.message || "Ensure correct email/password."));
                     }
+                  }}
+                >
+                  Request Tokens
+                </Button>
+              </div>
+              <Input
+                placeholder="Recovery Phrase"
+                type="text"
+                value={inputRecoveryPhrase}
+                onChange={(e) => setInputRecoveryPhrase(e.target.value)}
+                className="mb-3"
+              />
+              <Input
+                as="textarea"
+                placeholder="Paste 3 lines: contactId|token|encryptedShare"
+                value={recoveryInput}
+                onChange={(e) => setRecoveryInput(e.target.value)}
+                rows={4}
+                className="resize-none"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    if (isValidatingRecovery) return;
+                    setIsValidatingRecovery(true);
+                    try {
+                      if (!authSaltForRecovery) {
+                        setMessage("Missing cryptographic salt. Please click 'Request Tokens' first before submitting shares.");
+                        setIsValidatingRecovery(false);
+                        return;
+                      }
 
-                    const recoveryKey = await deriveRecoveryKey(masterPassword, authSaltForRecovery);
-                    const sharesForRecovery = await decryptRecoveryShares(recoveryKey, submittedEncryptedShares);
-                    const secret = recoverSecret(sharesForRecovery);
-                    setMessage(`Recovered secret fingerprint: ${secret.slice(0, 12)}...`);
-                  } catch {
-                    setMessage("Recovery validation failed. Ensure share format is correct.");
-                  } finally {
-                    setIsValidatingRecovery(false);
-                  }
-                }}
-                disabled={isValidatingRecovery}
-              >
-                Validate Recovery Shares
-              </Button>
-              {isValidatingRecovery && <Loader label="Processing..." />}
+                      const rawShares = recoveryInput
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+
+                      if (rawShares.length < 3) {
+                        setMessage(`At least 3 valid shares are required. We detected only ${rawShares.length} lines.`);
+                        return;
+                      }
+
+                      let finalToken = null;
+                      const submittedEncryptedShares = [];
+                      for (let i = 0; i < rawShares.length; i += 1) {
+                        const line = rawShares[i];
+                        const parts = line.split("|");
+                        if (parts.length < 3) {
+                          setMessage(`Line ${i+1} has invalid format. Use contactId|token|encryptedShare (Make sure you haven't pasted extra text).`);
+                          return;
+                        }
+                        const contactId = parts[0].trim();
+                        const verificationToken = parts[1].trim();
+                        const encryptedShare = parts.slice(2).join("|").trim();
+                        submittedEncryptedShares.push(encryptedShare);
+                        const res = await api.submitRecoveryShare({
+                          email: email.trim().toLowerCase(),
+                          contactId,
+                          verificationToken,
+                          encryptedShare
+                        });
+                        if (res && res.recoveryToken) finalToken = res.recoveryToken;
+                      }
+
+                      if (!inputRecoveryPhrase) {
+                        setMessage("Please provide your Recovery Phrase to decrypt the shares.");
+                        setIsValidatingRecovery(false);
+                        return;
+                      }
+
+                      const recoveryKey = await deriveRecoveryKey(inputRecoveryPhrase, authSaltForRecovery);
+                      const sharesForRecovery = await decryptRecoveryShares(recoveryKey, submittedEncryptedShares);
+                      const secret = recoverSecret(sharesForRecovery);
+                      
+                      if (!finalToken) {
+                         setMessage("Locally recovered secret, but the server rejected your tokens. Ensure you generated fresh tokens and used the correct contact names (e.g. contact-1).");
+                      } else {
+                         setMessage(`Recovered secret fingerprint: ${secret.slice(0, 12)}... You can now set a new master password.`);
+                         setRecoveryToken(finalToken);
+                      }
+                    } catch (err) {
+                      setMessage("Recovery validation failed: " + (err.message || "Ensure share format is correct and passwords match."));
+                    } finally {
+                      setIsValidatingRecovery(false);
+                    }
+                  }}
+                  disabled={isValidatingRecovery}
+                >
+                  Submit Recovery Shares
+                </Button>
+                {isValidatingRecovery && <Loader label="Processing..." />}
+              </div>
             </div>
-          </div>
+          )}
         </GlassCard>
       </motion.div>
     </div>
