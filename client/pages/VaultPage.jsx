@@ -8,6 +8,7 @@ import { decryptVaultData, deriveVaultKey, encryptVaultData } from "../utils/cry
 import Button from "../components/UI/Button";
 import GlassCard from "../components/UI/GlassCard";
 import Loader from "../components/UI/Loader";
+import Input from "../components/UI/Input";
 
 export default function VaultPage({ session, authSalt, onLogout }) {
   const [vaultKey, setVaultKey] = useState(null);

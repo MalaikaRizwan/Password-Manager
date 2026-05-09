@@ -278,7 +278,7 @@ export async function submitRecoveryShare({ email, contactId, encryptedShare, ve
   return { accepted: true, completed: true, threshold: user.recovery.threshold, recoveryToken: rawRecoveryToken };
 }
 
-export async function completeRecovery({ recoveryToken, authVerifier, authSalt, reencryptedVaultItems }) {
+export async function completeRecovery({ recoveryToken, authVerifier, authSalt, recovery, reencryptedVaultItems }) {
   if (!recoveryToken || !authVerifier || !authSalt) {
     throw new Error("INVALID_PAYLOAD");
   }
@@ -297,6 +297,23 @@ export async function completeRecovery({ recoveryToken, authVerifier, authSalt, 
   const normalizedVerifier = normalizeVerifier(authVerifier);
   user.authVerifierHash = await argon2.hash(normalizedVerifier, kdfParams);
   user.authSalt = authSalt;
+
+  if (recovery && Array.isArray(recovery.encryptedShares) && recovery.encryptedShares.length > 0) {
+    const encryptedShares = recovery.encryptedShares;
+    const contacts = encryptedShares.map((encryptedShare, index) => ({
+      contactId: `contact-${index + 1}`,
+      encryptedShare
+    }));
+    user.recovery.threshold = recovery.threshold;
+    user.recovery.totalShares = recovery.totalShares;
+    user.recovery.encryptedShares = encryptedShares;
+    user.recovery.contacts = contacts;
+    // Reset any rate-limit state for a clean post-reset experience.
+    user.recovery.requestCount = 0;
+    user.recovery.requestWindowStart = null;
+    user.recovery.cooldownUntil = null;
+    user.recovery.activeRequest = undefined;
+  }
 
   // Invalidate token and active sessions
   user.recovery.resetToken = undefined;

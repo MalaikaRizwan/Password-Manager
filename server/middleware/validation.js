@@ -107,7 +107,7 @@ export function validateTamperPayload(req, res, next) {
 }
 
 export function validateRecoveryComplete(req, res, next) {
-  const { recoveryToken, authVerifier, authSalt } = req.body || {};
+  const { recoveryToken, authVerifier, authSalt, recovery } = req.body || {};
   if (!validator.matches(recoveryToken || "", /^[a-f0-9]{64}$/i)) {
     return res.status(400).json({ error: "Invalid recovery token format" });
   }
@@ -116,6 +116,19 @@ export function validateRecoveryComplete(req, res, next) {
   }
   if (!isBase64(authSalt || "")) {
     return res.status(400).json({ error: "Invalid salt format" });
+  }
+  if (recovery) {
+    const threshold = Number(recovery.threshold);
+    const totalShares = Number(recovery.totalShares);
+    if (!Number.isFinite(threshold) || !Number.isFinite(totalShares) || threshold < 2 || totalShares < 2 || threshold > totalShares || totalShares > 10) {
+      return res.status(400).json({ error: "Invalid recovery payload" });
+    }
+    if (!Array.isArray(recovery.encryptedShares) || recovery.encryptedShares.length !== totalShares) {
+      return res.status(400).json({ error: "Invalid recovery payload" });
+    }
+    if (!recovery.encryptedShares.every(isEncryptedShareEnvelope)) {
+      return res.status(400).json({ error: "Invalid recovery share format" });
+    }
   }
   return next();
 }

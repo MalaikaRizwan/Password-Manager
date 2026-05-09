@@ -2,8 +2,8 @@ const API_BASE = "http://localhost:4000/api";
 let csrfToken = "";
 let unauthorizedHandler = null;
 
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
+async function doFetch(path, options = {}) {
+  return fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -12,6 +12,22 @@ async function request(path, options = {}) {
     },
     ...options
   });
+}
+
+async function request(path, options = {}) {
+  let res = await doFetch(path, options);
+
+  // If access token expired, try a single refresh + retry (avoid infinite loops).
+  if (res.status === 401 && path !== "/auth/refresh") {
+    try {
+      const refreshRes = await doFetch("/auth/refresh", { method: "POST" });
+      if (refreshRes.ok) {
+        res = await doFetch(path, options);
+      }
+    } catch {
+      // Ignore refresh errors; handled below.
+    }
+  }
 
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));

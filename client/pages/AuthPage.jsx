@@ -194,15 +194,27 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
                       setMessage("Completing password reset...");
                       const newAuthSalt = randomBytesBase64(16);
                       const newAuthVerifier = await deriveAuthVerifier(email, newPassword, newAuthSalt);
+
+                      // Generate a fresh Recovery Kit bound to the NEW auth salt.
+                      // Without this, future recoveries fail because the old shares were encrypted under the old salt.
+                      const nextRecoveryPhrase = generateStrongPassword({ length: 24, symbols: false });
+                      const nextPlainShares = splitRecoverySecret(newPassword, 3, 5);
+                      const nextRecoveryKey = await deriveRecoveryKey(nextRecoveryPhrase, newAuthSalt);
+                      const nextEncryptedShares = await encryptRecoveryShares(nextRecoveryKey, nextPlainShares);
                       
                       // Complete recovery with new credentials
                       await api.completeRecovery({ 
                         recoveryToken, 
                         authVerifier: newAuthVerifier, 
-                        authSalt: newAuthSalt
+                        authSalt: newAuthSalt,
+                        recovery: { threshold: 3, totalShares: 5, encryptedShares: nextEncryptedShares }
                       });
                       
-                      setMessage("Password reset successful! Please log in with your new password.");
+                      setRecoveryPhrase(nextRecoveryPhrase);
+                      setShares(nextEncryptedShares);
+                      setAuthSaltForRecovery(newAuthSalt);
+                      onSaltReady(newAuthSalt);
+                      setMessage("Password reset successful! Store your NEW recovery phrase + shares offline, then log in with your new password.");
                       setRecoveryToken("");
                       setNewPassword("");
                       setMasterPassword("");
