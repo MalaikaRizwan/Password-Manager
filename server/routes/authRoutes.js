@@ -6,6 +6,7 @@ import {
   preLogin,
   recoveryRequest,
   recoverySubmitShare,
+  recoveryComplete,
   refresh,
   register,
   setupMfa
@@ -16,6 +17,7 @@ import {
   validateLogin,
   validateRecoveryRequest,
   validateRecoverySubmitShare,
+  validateRecoveryComplete,
   validateRegister
 } from "../middleware/validation.js";
 
@@ -30,5 +32,6 @@ router.post("/logout", csrfProtection, logout);
 router.post("/mfa/setup", requireAuth, csrfProtection, setupMfa);
 router.post("/recovery/request", authRateLimiter, csrfProtection, validateRecoveryRequest, recoveryRequest);
 router.post("/recovery/submit-share", authRateLimiter, csrfProtection, validateRecoverySubmitShare, recoverySubmitShare);
+router.post("/recovery/complete", authRateLimiter, csrfProtection, validateRecoveryComplete, recoveryComplete);
 
 export default router;

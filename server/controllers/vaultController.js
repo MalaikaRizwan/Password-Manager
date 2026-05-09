@@ -2,7 +2,8 @@ import {
   createVaultItem,
   deleteVaultItem,
   listVaultItems,
-  updateVaultItem
+  updateVaultItem,
+  applyPendingVaultReencryption
 } from "../services/vaultService.js";
 import { appendAuditLog } from "../utils/auditLogger.js";
 import { VaultItem } from "../models/VaultItem.js";
@@ -87,6 +88,38 @@ export async function reportVaultTampered(req, res, next) {
       itemId: vaultItemId
     });
     return res.status(202).json({ message: "Tamper event recorded" });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function batchUpdateVault(req, res, next) {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: "Items must be an array" });
+    }
+
+    const updateResults = [];
+    for (const item of items) {
+      try {
+        const { _id, ...updateData } = item;
+        if (!_id) {
+          updateResults.push({ _id, status: "error", message: "Missing ID" });
+          continue;
+        }
+        const updated = await updateVaultItem(req.userId, _id, updateData);
+        updateResults.push({ _id, status: "success", item: updated });
+        appendAuditLog("vault_batch_update", { userId: req.userId, itemId: _id });
+      } catch (err) {
+        updateResults.push({ _id: item._id, status: "error", message: err.message });
+      }
+    }
+    
+    return res.json({ 
+      message: "Batch update completed",
+      results: updateResults
+    });
   } catch (err) {
     return next(err);
   }

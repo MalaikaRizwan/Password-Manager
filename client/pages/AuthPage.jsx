@@ -60,7 +60,7 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
       const authSalt = randomBytesBase64(16);
       const authVerifier = await deriveAuthVerifier(normalizedEmail, masterPassword, authSalt);
       const generatedRecoveryPhrase = generateStrongPassword({ length: 24, symbols: false });
-      const recoverySecret = crypto.randomUUID();
+      const recoverySecret = masterPassword;
       const plainShares = splitRecoverySecret(recoverySecret, 3, 5);
       const recoveryKey = await deriveRecoveryKey(generatedRecoveryPhrase, authSalt);
       const encryptedShares = await encryptRecoveryShares(recoveryKey, plainShares);
@@ -80,8 +80,9 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
       setShares(encryptedShares);
       setRecoveryPhrase(generatedRecoveryPhrase);
       setMessage("Registration successful. Store your recovery phrase and shares securely.");
-    } catch {
-      setMessage("Registration failed. Please try again.");
+    } catch (err) {
+      setMessage("Registration failed: " + (err.message || "Please try again."));
+      console.error(err);
     } finally {
       setIsRegistering(false);
     }
@@ -170,12 +171,15 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
               <div className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-200">
                 <KeyRound size={14} /> Reset Master Password
               </div>
-              <Input
-                placeholder="New Master Password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
+              <div className="mb-3">
+                <label className="mb-1 block text-sm text-slate-300">New Master Password</label>
+                <Input
+                  placeholder="New Master Password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button
                   onClick={async () => {
@@ -186,14 +190,25 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
                     }
                     setIsResetting(true);
                     try {
-                      const authSalt = randomBytesBase64(16);
-                      const authVerifier = await deriveAuthVerifier(email, newPassword, authSalt);
-                      await api.completeRecovery({ recoveryToken, authVerifier, authSalt });
-                      setMessage("Password reset successful. Please log in with your new password.");
+                      // Generate NEW auth salt and derive NEW verifier
+                      setMessage("Completing password reset...");
+                      const newAuthSalt = randomBytesBase64(16);
+                      const newAuthVerifier = await deriveAuthVerifier(email, newPassword, newAuthSalt);
+                      
+                      // Complete recovery with new credentials
+                      await api.completeRecovery({ 
+                        recoveryToken, 
+                        authVerifier: newAuthVerifier, 
+                        authSalt: newAuthSalt
+                      });
+                      
+                      setMessage("Password reset successful! Please log in with your new password.");
                       setRecoveryToken("");
                       setNewPassword("");
+                      setMasterPassword("");
                     } catch (e) {
                       setMessage("Reset failed: " + (e.message || "Unknown error"));
+                      console.error("Reset error:", e);
                     } finally {
                       setIsResetting(false);
                     }
@@ -312,11 +327,13 @@ export default function AuthPage({ onLoggedIn, onSaltReady }) {
                       if (!finalToken) {
                          setMessage("Locally recovered secret, but the server rejected your tokens. Ensure you generated fresh tokens and used the correct contact names (e.g. contact-1).");
                       } else {
-                         setMessage(`Recovered secret fingerprint: ${secret.slice(0, 12)}... You can now set a new master password.`);
+                         setMessage(`Secret recovered successfully! You can now set a new master password.`);
+                         sessionStorage.setItem("recoveredOldPassword", secret);
+                         sessionStorage.setItem("recoveredOldAuthSalt", authSaltForRecovery);
                          setRecoveryToken(finalToken);
                       }
                     } catch (err) {
-                      setMessage("Recovery validation failed: " + (err.message || "Ensure share format is correct and passwords match."));
+                      setMessage("Recovery validation failed: " + (err.message || "Ensure share format is correct and Recovery Phrase is valid."));
                     } finally {
                       setIsValidatingRecovery(false);
                     }

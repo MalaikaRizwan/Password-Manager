@@ -49,5 +49,6 @@ export const api = {
   updateVaultItem: (id, body) => request(`/vault/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteVaultItem: (id) => request(`/vault/${id}`, { method: "DELETE" }),
   reportVaultTamper: (reason, vaultItemId) =>
-    request("/vault/tamper-detected", { method: "POST", body: JSON.stringify({ reason, vaultItemId }) })
+    request("/vault/tamper-detected", { method: "POST", body: JSON.stringify({ reason, vaultItemId }) }),
+  batchUpdateVaultItems: (items) => request("/vault/batch-update", { method: "POST", body: JSON.stringify({ items }) })
 };

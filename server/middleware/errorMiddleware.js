@@ -18,5 +18,5 @@ export function errorHandler(err, req, res, next) {
   if (message.startsWith("INVALID")) {
     return res.status(401).json({ error: "Invalid authentication data" });
   }
-  return res.status(500).json({ error: "Internal server error" });
+  return res.status(500).json({ error: "Internal server error: " + err.message, stack: err.stack });
 }

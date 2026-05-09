@@ -194,9 +194,8 @@ export async function revokeRefreshToken(refreshToken, sessionBinding) {
   return { userId: user.id };
 }
 
-export async function initiateRecovery({ email, authVerifier }) {
+export async function initiateRecovery({ email }) {
   const normalizedEmail = normalizeEmail(email);
-  const normalizedVerifier = normalizeVerifier(authVerifier);
   const user = await User.findOne({ email: normalizedEmail });
   if (!user) {
     throw new Error("INVALID_RECOVERY_REQUEST");
@@ -213,12 +212,6 @@ export async function initiateRecovery({ email, authVerifier }) {
     user.recovery.cooldownUntil = new Date(now + RECOVERY_COOLDOWN_MS);
     await user.save();
     throw new Error("RECOVERY_RATE_LIMITED");
-  }
-  const valid = await argon2.verify(user.authVerifierHash, normalizedVerifier, kdfParams);
-  if (!valid) {
-    user.recovery.requestCount = (user.recovery.requestCount || 0) + 1;
-    await user.save();
-    throw new Error("INVALID_RECOVERY_REQUEST");
   }
   user.recovery.requestCount = (user.recovery.requestCount || 0) + 1;
   const verificationTokens = (user.recovery.contacts || []).map((entry) => ({
@@ -274,8 +267,44 @@ export async function submitRecoveryShare({ email, contactId, encryptedShare, ve
   }
 
   user.recovery.activeRequest = undefined;
+  
+  const rawRecoveryToken = crypto.randomBytes(32).toString("hex");
+  user.recovery.resetToken = {
+    tokenHash: sha256(rawRecoveryToken),
+    expiresAt: new Date(Date.now() + RECOVERY_TOKEN_TTL_MS)
+  };
+
   await user.save();
-  return { accepted: true, completed: true, threshold: user.recovery.threshold };
+  return { accepted: true, completed: true, threshold: user.recovery.threshold, recoveryToken: rawRecoveryToken };
+}
+
+export async function completeRecovery({ recoveryToken, authVerifier, authSalt, reencryptedVaultItems }) {
+  if (!recoveryToken || !authVerifier || !authSalt) {
+    throw new Error("INVALID_PAYLOAD");
+  }
+  const tokenHash = sha256(recoveryToken);
+  const user = await User.findOne({ "recovery.resetToken.tokenHash": tokenHash });
+  if (!user) {
+    throw new Error("INVALID_RECOVERY_TOKEN");
+  }
+
+  if (user.recovery.resetToken.expiresAt.getTime() < Date.now()) {
+    user.recovery.resetToken = undefined;
+    await user.save();
+    throw new Error("RECOVERY_TOKEN_EXPIRED");
+  }
+
+  const normalizedVerifier = normalizeVerifier(authVerifier);
+  user.authVerifierHash = await argon2.hash(normalizedVerifier, kdfParams);
+  user.authSalt = authSalt;
+
+  // Invalidate token and active sessions
+  user.recovery.resetToken = undefined;
+  user.refreshTokenHash = undefined;
+
+  await user.save();
+
+  return { userId: user.id };
 }
 
 export async function enableMfa(userId) {

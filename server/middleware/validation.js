@@ -69,11 +69,8 @@ export function validateVaultPayload(req, res, next) {
 }
 
 export function validateRecoveryRequest(req, res, next) {
-  const { email, authVerifier } = req.body || {};
+  const { email } = req.body || {};
   if (!validator.isEmail(email || "")) {
-    return res.status(400).json({ error: "Invalid recovery request" });
-  }
-  if (!validator.isLength(authVerifier || "", { min: 20, max: 512 })) {
     return res.status(400).json({ error: "Invalid recovery request" });
   }
   return next();
@@ -105,6 +102,20 @@ export function validateTamperPayload(req, res, next) {
   }
   if (!validator.isMongoId(vaultItemId || "")) {
     return res.status(400).json({ error: "Invalid tamper context" });
+  }
+  return next();
+}
+
+export function validateRecoveryComplete(req, res, next) {
+  const { recoveryToken, authVerifier, authSalt } = req.body || {};
+  if (!validator.matches(recoveryToken || "", /^[a-f0-9]{64}$/i)) {
+    return res.status(400).json({ error: "Invalid recovery token format" });
+  }
+  if (!validator.isLength(authVerifier || "", { min: 20, max: 512 })) {
+    return res.status(400).json({ error: "Invalid verifier format" });
+  }
+  if (!isBase64(authSalt || "")) {
+    return res.status(400).json({ error: "Invalid salt format" });
   }
   return next();
 }

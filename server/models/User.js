@@ -14,10 +14,13 @@ const RecoverySchema = new mongoose.Schema(
     requestCount: { type: Number, default: 0 },
     requestWindowStart: { type: Date, default: null },
     cooldownUntil: { type: Date, default: null },
+    resetToken: {
+      tokenHash: { type: String },
+      expiresAt: { type: Date }
+    },
     activeRequest: {
       requestedAt: { type: Date },
-      submittedContactIds: [{ type: String }]
-      ,
+      submittedContactIds: [{ type: String }],
       verificationTokens: [
         {
           contactId: { type: String, required: true },
@@ -45,7 +48,15 @@ const UserSchema = new mongoose.Schema(
     failedAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
     recovery: { type: RecoverySchema, required: true },
-    refreshTokenHash: { type: String }
+    refreshTokenHash: { type: String },
+    pendingVaultReencryption: [
+      {
+        _id: { type: String },
+        encryptedBlob: { type: String },
+        iv: { type: String },
+        updatedAtClient: { type: String }
+      }
+    ]
   },
   { timestamps: true }
 );

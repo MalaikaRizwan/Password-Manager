@@ -25,21 +25,24 @@ export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." }
 });
 
 export const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  message: { error: "Too many login attempts, please try again later." }
 });
 
 export const apiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  message: { error: "API rate limit exceeded." }
 });
 
 export const csrfProtection = csurf({

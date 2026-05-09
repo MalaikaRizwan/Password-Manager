@@ -17,6 +17,10 @@ export default function VaultPage({ session, authSalt, onLogout }) {
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [isFetchingVault, setIsFetchingVault] = useState(false);
   const [vaultTampered, setVaultTampered] = useState(false);
+  const [showMigrationPrompt, setShowMigrationPrompt] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [oldPassword, setOldPassword] = useState(() => sessionStorage.getItem("recoveredOldPassword") || "");
+  const [oldAuthSalt, setOldAuthSalt] = useState(() => sessionStorage.getItem("recoveredOldAuthSalt") || "");
   const lastActionRef = useRef(0);
 
   useEffect(() => {
@@ -28,20 +32,107 @@ export default function VaultPage({ session, authSalt, onLogout }) {
   }, [session.masterPassword, authSalt]);
 
   const loadVault = useCallback(async () => {
+    if (!vaultKey) return;
+    
     setIsFetchingVault(true);
     try {
       const data = await api.listVault();
-      setItems(data.items);
+      
+      // Try to decrypt items with current key
+      let hasDecryptionErrors = false;
+      const decryptedItems = [];
+      
+      for (const item of data.items) {
+        try {
+          await decryptVaultData(vaultKey, item.encryptedBlob, item.iv);
+          decryptedItems.push(item);
+        } catch (err) {
+          // If we can't decrypt, it might be with old key (after password reset)
+          hasDecryptionErrors = true;
+          console.warn("Could not decrypt item, may need migration:", item._id);
+        }
+      }
+      
+      // If we found items we can't decrypt, show migration prompt
+      if (hasDecryptionErrors && decryptedItems.length === 0 && data.items.length > 0) {
+        setShowMigrationPrompt(true);
+        setItems([]);
+        setError("Vault contains old encrypted items. Please migrate them with your original password.");
+      } else {
+        setItems(decryptedItems);
+        setVaultTampered(false);
+        if (hasDecryptionErrors) {
+          setError("Some vault items could not be decrypted. You may need to migrate your vault.");
+        }
+      }
+    } catch (err) {
+      setError("Could not load vault: " + (err.message || "Unknown error"));
     } finally {
       setIsFetchingVault(false);
     }
-  }, []);
+  }, [vaultKey]);
 
   useEffect(() => {
-    if (vaultKey) {
-      loadVault().catch(() => setError("Could not load vault"));
+    if (vaultKey && !isMigrating) {
+      loadVault().catch(() => {});
     }
-  }, [vaultKey, loadVault]);
+  }, [vaultKey, loadVault, isMigrating]);
+
+  const migrateVault = useCallback(async () => {
+    if (!oldPassword || !oldAuthSalt) {
+      setError("Please enter your original password and auth salt to migrate vault items.");
+      return;
+    }
+
+    setIsMigrating(true);
+    try {
+      setError("Migrating vault items...");
+      
+      // Derive old vault key
+      const oldVaultKey = await deriveVaultKey(oldPassword, oldAuthSalt);
+      
+      // Fetch all vault items
+      const data = await api.listVault();
+      
+      // Try to decrypt each item with old key, then re-encrypt with new key
+      const reencryptedItems = [];
+      for (const item of data.items) {
+        try {
+          const plainData = await decryptVaultData(oldVaultKey, item.encryptedBlob, item.iv);
+          const encrypted = await encryptVaultData(vaultKey, plainData);
+          reencryptedItems.push({
+            _id: item._id,
+            ...encrypted,
+            updatedAtClient: item.updatedAtClient || new Date().toISOString()
+          });
+        } catch (decryptError) {
+          console.warn("Failed to migrate item:", item._id, decryptError);
+        }
+      }
+
+      // Batch update all items
+      if (reencryptedItems.length > 0) {
+        await api.batchUpdateVaultItems(reencryptedItems);
+      }
+
+      setError("Migration complete! Reloading vault...");
+      setShowMigrationPrompt(false);
+      setOldPassword("");
+      setOldAuthSalt("");
+      sessionStorage.removeItem("recoveredOldPassword");
+      sessionStorage.removeItem("recoveredOldAuthSalt");
+      
+      // Reload vault with new key
+      setTimeout(() => {
+        loadVault().then(() => setError(""));
+      }, 1000);
+    } catch (err) {
+      setError("Migration failed: " + (err.message || "Check your old password"));
+      console.error("Migration error:", err);
+    } finally {
+      setIsMigrating(false);
+    }
+  }, [oldPassword, oldAuthSalt, vaultKey, loadVault]);
 
   const addItem = useCallback(
     async (formData) => {
@@ -108,6 +199,47 @@ export default function VaultPage({ session, authSalt, onLogout }) {
             Vault Tampered. Access has been blocked.
           </p>
         ) : null}
+
+        {showMigrationPrompt && (
+          <GlassCard className="mb-6 border border-cyan-400/40 bg-cyan-400/10 p-6">
+            <div className="mb-4">
+              <h4 className="mb-2 font-semibold text-cyan-200">Migrate Vault to New Encryption</h4>
+              <p className="mb-4 text-sm text-cyan-100">Your vault items were encrypted with your old password. To migrate them, enter your original password and the auth salt from your recovery process.</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs text-cyan-300">Original Master Password</label>
+                  <Input
+                    placeholder="Your original/old master password"
+                    type="password"
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-cyan-300">Original Auth Salt (from recovery emails/backup)</label>
+                  <Input
+                    placeholder="Paste the auth salt you saved during registration"
+                    type="text"
+                    value={oldAuthSalt}
+                    onChange={(e) => setOldAuthSalt(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={migrateVault} disabled={isMigrating || !oldPassword || !oldAuthSalt}>
+                {isMigrating ? "Migrating..." : "Migrate Vault"}
+              </Button>
+              <Button variant="ghost" onClick={() => {
+                setShowMigrationPrompt(false);
+                setOldPassword("");
+                setOldAuthSalt("");
+              }} disabled={isMigrating}>
+                Skip for Now
+              </Button>
+            </div>
+          </GlassCard>
+        )}
 
         <GlassCard className="glass-outline">
           <div className="mb-6 flex items-center gap-2">
